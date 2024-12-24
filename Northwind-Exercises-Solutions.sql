@@ -1698,23 +1698,12 @@
     --180 Find the products that have the highest quantity ordered and were supplied by suppliers from "Italy".
     --查找订购数量最多且由“意大利”供应商供应的产品。
 
-    WITH ProductOrderDetails AS(
-     SELECT p.ProductID, p.ProductName, od.Quantity,
-            s.Country AS SupplierCountry
-     FROM Products p
-     JOIN[Order Details] od ON p.ProductID = od.ProductID
-     JOIN Orders o ON od.OrderID = o.OrderID
-     JOIN Suppliers s ON p.SupplierID = s.SupplierID
-     WHERE s.Country = 'Italy'
-    ),
-    TopOrderedProducts AS(
-        SELECT ProductID, MAX(Quantity) AS MaxOrderedQuantity
-        FROM ProductOrderDetails
-        GROUP BY ProductID
-    )
-    SELECT Distinct pod.ProductName, pod.Quantity
-    FROM ProductOrderDetails pod
-    JOIN TopOrderedProducts tp ON pod.ProductID = tp.ProductID AND pod.Quantity = tp.MaxOrderedQuantity;
+   SELECT TOP 1 p.ProductID, p.ProductName, od.Quantity
+    FROM Products p
+    JOIN Suppliers s ON p.SupplierID = s.SupplierID
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    WHERE s.Country = 'Italy'
+    ORDER BY od.Quantity DESC
 
 
     --181 Get all orders where the ship city is "Seattle" and the order amount is greater than $100.
@@ -1729,21 +1718,14 @@
 
     --182 List all employees who have shipped products with a quantity greater than the average quantity ordered.
     --列出所有发货数量超过平均订购数量的员工。
-    WITH AverageQuantity AS(
-        SELECT AVG(Quantity) AS AvgOrderedQuantity
-        FROM[Order Details]
-    ),
-    EmployeeShipments AS(
-        SELECT e.EmployeeID, e.FirstName, e.LastName,
-               SUM(od.Quantity) AS ShippedQuantity
-        FROM Employees e
-        JOIN Orders o ON e.EmployeeID = o.EmployeeID
-        JOIN[Order Details] od ON o.OrderID = od.OrderID
-        GROUP BY e.EmployeeID, e.FirstName, e.LastName
-    )
-    SELECT es.EmployeeID, es.FirstName, es.LastName, es.ShippedQuantity
-    FROM EmployeeShipments es
-    JOIN AverageQuantity avg ON es.ShippedQuantity > avg.AvgOrderedQuantity;
+    SELECT DISTINCT e.EmployeeID, e.FirstName, e.LastName
+    FROM Employees e
+    JOIN Orders o ON e.EmployeeID = o.EmployeeID
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    WHERE od.Quantity > (
+        SELECT AVG(Quantity)
+        FROM [Order Details]
+    );
 
 
     --183 Retrieve the names of suppliers who have provided products with a unit price between $20 and $40.
@@ -1787,18 +1769,14 @@
     --187 Retrieve the names of employees who have processed orders for more than 5 different categories.
     --检索已处理5个以上不同类别订单的员工姓名。
 
-    WITH EmployeeCategories AS(
-        SELECT e.EmployeeID, e.FirstName, e.LastName,
-               COUNT(DISTINCT p.CategoryID) AS CategoryCount
-        FROM Employees e
-        JOIN Orders o ON e.EmployeeID = o.EmployeeID
-        JOIN[Order Details] od ON o.OrderID = od.OrderID
-        JOIN Products p ON od.ProductID = p.ProductID
-        GROUP BY e.EmployeeID, e.FirstName, e.LastName
-        )
-        SELECT ec.EmployeeID, ec.FirstName, ec.LastName
-        FROM EmployeeCategories ec
-        WHERE CategoryCount > 5;
+    SELECT e.EmployeeID, e.FirstName, e.LastName
+    FROM Employees e
+    JOIN Orders o ON e.EmployeeID = o.EmployeeID
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Categories pc ON p.CategoryID = pc.CategoryID
+    GROUP BY e.EmployeeID, e.FirstName, e.LastName
+    HAVING COUNT(DISTINCT pc.CategoryID) > 5;
 
 
     --188 Find all products that have been ordered by customers with a postal code starting with "1" and are in stock.
@@ -1828,18 +1806,14 @@
            
     -- 190.Retrieve the top 5 customers who have the highest total order amount and list their order count.
     --检索订单总额最高的前5位客户，并列出他们的订单数量。
-    WITH CustomerOrderTotals AS (
-    SELECT c.CustomerID, c.CompanyName,
-           SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount,
-           COUNT(o.OrderID) AS OrderCount
+    SELECT TOP 5 c.CustomerID, c.CompanyName,
+       SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount,
+       COUNT(o.OrderID) AS OrderCount
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     GROUP BY c.CustomerID, c.CompanyName
-    )
-    SELECT TOP 5 cot.CustomerID, cot.CompanyName, cot.TotalOrderAmount, cot.OrderCount
-    FROM CustomerOrderTotals cot
-    ORDER BY cot.TotalOrderAmount DESC
+    ORDER BY TotalOrderAmount DESC
 
 
     --191. Find the average discount applied to orders for each product category.
@@ -1854,39 +1828,30 @@
 
     --192. Get the names of employees who have shipped orders with a freight cost above the median freight cost of all orders.
     --获取运费高于所有订单运费中位数的发货订单的员工姓名。
-    WITH MedianFreight AS (
-    SELECT AVG(Freight) AS MedianFreight
-    FROM Orders
-    )
     SELECT DISTINCT e.EmployeeID, e.FirstName, e.LastName
     FROM Employees e
     JOIN Orders o ON e.EmployeeID = o.EmployeeID
-    WHERE o.Freight > (SELECT MedianFreight FROM MedianFreight);
+    WHERE o.Freight > (
+        SELECT AVG(Freight)
+        FROM Orders
+    );
 
     --193. List all products that are supplied by the supplier with the most products and have been ordered more than the average quantity.
     --列出供应商提供的产品最多且订购量超过平均数量的所有产品。
-    WITH SupplierProductCount AS (
-    SELECT s.SupplierID, COUNT(p.ProductID) AS ProductCount
-    FROM Suppliers s
-    JOIN Products p ON s.SupplierID = p.SupplierID
-    GROUP BY s.SupplierID
-    ),
-    TopSupplier AS (
-        SELECT TOP 1 SupplierID
-        FROM SupplierProductCount
-        ORDER BY ProductCount DESC
-    ),
-    AverageOrderQuantity AS (
-        SELECT AVG(od.Quantity) AS AverageQuantity
-        FROM [Order Details] od
-    )
-    SELECT p.ProductName, p.UnitPrice, p.UnitsInStock
+    SELECT p.ProductID, p.ProductName
     FROM Products p
     JOIN Suppliers s ON p.SupplierID = s.SupplierID
-    JOIN Orders o ON p.ProductID = o.OrderID
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    WHERE s.SupplierID = (SELECT SupplierID FROM TopSupplier)
-      AND od.Quantity > (SELECT AverageQuantity FROM AverageOrderQuantity);
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    WHERE s.SupplierID = (
+        SELECT TOP 1 SupplierID
+        FROM Products
+        GROUP BY SupplierID
+        ORDER BY COUNT(ProductID) DESC    
+    )
+    AND od.Quantity > (
+        SELECT AVG(Quantity)
+        FROM [Order Details]
+    );
 
     --194. Retrieve the top 3 categories with the highest average product unit price.
     --检索平均产品单价最高的前3个类别。
@@ -1898,24 +1863,20 @@
 
     --195. Find the customers who have ordered products from every category at least once.
     --找到至少订购过一次每个类别产品的客户。
-    WITH CustomerCategoryOrders AS (
-    SELECT c.CustomerID, cc.CategoryName
+   SELECT c.CustomerID, c.CompanyName
     FROM Customers c
-    JOIN Orders o ON c.CustomerID = o.CustomerID
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    JOIN Products p ON od.ProductID = p.ProductID
-    JOIN Categories cc ON p.CategoryID = cc.CategoryID
-    ),
-    AllCategories AS (
-        SELECT DISTINCT CategoryName
-        FROM Categories
-    )
-    SELECT cc.CustomerID, c.CompanyName
-    FROM CustomerCategoryOrders cc
-    JOIN Customers c ON c.CustomerID=cc.CustomerID
-    JOIN AllCategories ac ON cc.CategoryName = ac.CategoryName
-    GROUP BY cc.CustomerID, c.CompanyName
-    HAVING COUNT(DISTINCT cc.CategoryName) = (SELECT COUNT(*) FROM AllCategories);
+    WHERE NOT EXISTS (
+        SELECT DISTINCT ct.CategoryID
+        FROM Categories ct
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM Orders o
+            JOIN [Order Details] od ON o.OrderID = od.OrderID
+            JOIN Products p ON od.ProductID = p.ProductID
+            JOIN Categories pc ON p.CategoryID = pc.CategoryID
+            WHERE c.CustomerID = o.CustomerID AND ct.CategoryID = pc.CategoryID
+        )
+    );
 
 
     --196. Get the details of the order with the longest time between order date and required date.
@@ -1944,25 +1905,12 @@
     );
     --198. Retrieve the total number of products ordered for each product and compare it to the total stock quantity.
     --检索每种产品订购的产品总数，并将其与总库存量进行比较。
-    WITH OrderedProducts AS (
-    SELECT p.ProductID, SUM(od.Quantity) AS TotalOrdered
+    SELECT p.ProductID, p.ProductName,
+       SUM(od.Quantity) AS TotalOrdered,
+       (SELECT SUM(UnitsInStock + UnitsOnOrder) FROM Products WHERE ProductID = p.ProductID) AS TotalStock
     FROM [Order Details] od
     JOIN Products p ON od.ProductID = p.ProductID
-    GROUP BY p.ProductID
-    ),
-    StockQuantities AS (
-        SELECT ProductID, UnitsInStock
-        FROM Products
-    )
-    SELECT
-        op.ProductID,
-        p.ProductName,
-        op.TotalOrdered,
-        s.UnitsInStock,
-        (op.TotalOrdered - s.UnitsInStock) AS Difference
-    FROM OrderedProducts op
-    JOIN Products p ON op.ProductID = p.ProductID
-    JOIN StockQuantities s ON p.ProductID = s.ProductID;
+    GROUP BY p.ProductID, p.ProductName;
 
     --199. Find all products that have a reorder level equal to the maximum reorder level for their category.
     --查找所有重新订购级别等于其类别最大重新订购级别的产品。
@@ -1976,49 +1924,38 @@
 
     --200. Get the names of all customers who have ordered products from suppliers with more than 2 products.
     --获取从供应商那里订购了2种以上产品的所有客户的姓名。
-    WITH SupplierProductCounts AS (
-    SELECT p.SupplierID, COUNT(p.ProductID) AS ProductCount
-    FROM Products p
-    GROUP BY p.SupplierID
-    HAVING COUNT(p.ProductID) > 2
-    )
-    SELECT DISTINCT c.CompanyName
+    SELECT DISTINCT c.CustomerID, c.CompanyName
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     JOIN Products p ON od.ProductID = p.ProductID
-    WHERE p.SupplierID IN (SELECT SupplierID FROM SupplierProductCounts);
-
+    WHERE (
+        SELECT COUNT(p2.ProductID)
+        FROM Suppliers s
+        JOIN Products p2 ON s.SupplierID = p2.SupplierID
+    ) > 2;
     --201. List the employees who have processed orders for customers in more than 4 different countries.
     --列出为4个以上不同国家的客户处理订单的员工。
-    WITH EmployeeCustomerCountryCounts AS (
-    SELECT e.EmployeeID, COUNT(DISTINCT c.Country) AS CountryCount
+    SELECT DISTINCT e.EmployeeID, e.FirstName, e.LastName
     FROM Employees e
     JOIN Orders o ON e.EmployeeID = o.EmployeeID
-    JOIN Customers c ON o.CustomerID = c.CustomerID
-    GROUP BY e.EmployeeID
-    HAVING COUNT(DISTINCT c.Country) > 4
-    )
-    SELECT e.EmployeeID, e.FirstName, e.LastName
-    FROM Employees e
-    WHERE e.EmployeeID IN (SELECT EmployeeID FROM EmployeeCustomerCountryCounts);
+    WHERE (
+        SELECT COUNT(DISTINCT c.Country)
+        FROM Customers c
+        JOIN Orders o2 ON c.CustomerID = o2.CustomerID
+        WHERE e.EmployeeID = o2.EmployeeID
+    ) > 4;
 
     --202. Retrieve the names of categories where the average unit price of products is greater than the overall average unit price.
     --检索产品平均单价大于整体平均单价的类别名称。
-    WITH AverageUnitPriceByCategory AS (
-    SELECT CategoryID, AVG(UnitPrice) AS AvgUnitPricePerCategory
-    FROM Products
-    GROUP BY CategoryID
-    ),
-    OverallAverageUnitPrice AS (
-        SELECT AVG(UnitPrice) AS OverallAvgUnitPrice
+    SELECT c.CategoryName, AVG(p.UnitPrice) AS AverageUnitPrice
+    FROM Products p
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    GROUP BY c.CategoryName
+    HAVING AVG(p.UnitPrice) > (
+        SELECT AVG(UnitPrice)
         FROM Products
-    )
-    SELECT c.CategoryName
-    FROM Categories c
-    JOIN AverageUnitPriceByCategory aubpc ON c.CategoryID = aubpc.CategoryID
-    JOIN OverallAverageUnitPrice oau ON 1=1 -- This is just to join the overall average with each category for comparison
-    WHERE aubpc.AvgUnitPricePerCategory > oau.OverallAvgUnitPrice;
+    );
 
     --203. Find the suppliers who have provided products with a quantity per unit description that includes both "Box" and "Pack".
     --查找提供每单位数量描述的产品的供应商，其中包括“盒子”和“包装”。
@@ -2051,6 +1988,15 @@
 
     --205. List products that have been ordered in every month of 1996 and have a unit price above $20.
     --列出1996年每月订购的单价超过20美元的产品。
+    SELECT p.ProductID, p.ProductName
+    FROM Products p
+    WHERE (
+        SELECT COUNT(DISTINCT MONTH(o.OrderDate))
+        FROM [Order Details] od
+        JOIN Orders o ON od.OrderID = o.OrderID
+        WHERE p.ProductID = od.ProductID AND YEAR(o.OrderDate) = 1997
+    ) = 10
+    AND p.UnitPrice > 20;
 
     --206. Retrieve the names of customers who have placed orders in every year from 1995 to 1997.
     --检索1995年至1997年每年下订单的客户名称。
@@ -2078,14 +2024,17 @@
     );
     --207. Find all orders with a freight cost greater than the average freight cost of orders shipped by "Federal Shipping" and "United Package".
     --查找运费高于“联邦运输”和“联合包裹”运送的订单平均运费的所有订单。
-    WITH AvgFreight AS (
-    SELECT AVG(Freight) AS AvgFreightCost
+    SELECT OrderID, Freight
     FROM Orders
-    WHERE ShipVia IN (SELECT ShipperID FROM Shippers WHERE CompanyName IN ('Federal Shipping', 'United Package'))
-    )
-    SELECT o.OrderID, o.ShipVia, o.Freight
-    FROM Orders o
-    WHERE o.Freight > (SELECT AvgFreightCost FROM AvgFreight);
+    WHERE Freight > (
+        SELECT AVG(Freight)
+        FROM Orders
+        WHERE ShipVia IN (
+            SELECT ShipperID
+            FROM Shippers
+            WHERE CompanyName IN ('Federal Shipping', 'United Package')
+        )
+    );
 
     --208. Get the total number of orders placed by customers who live in cities with more than 3 suppliers.
     --获取居住在拥有3个以上供应商的城市的客户下的订单总数。
@@ -2141,21 +2090,13 @@
 
     --211. Find the top 10 products that have been ordered the most in the last 6 months.
     --查找过去6个月内订购量最大的前10种产品。
-    WITH RecentOrders AS (
-    SELECT OrderDate, ProductID, Quantity
-    FROM Orders o
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    WHERE OrderDate >= DATEADD(month, -6, GETDATE())
-    ),
-    ProductCounts AS (
-        SELECT ProductID, SUM(Quantity) AS TotalQuantity
-        FROM RecentOrders
-        GROUP BY ProductID
-    )
-    SELECT TOP 10 p.ProductID, p.ProductName, pc.TotalQuantity
+    SELECT TOP 10 p.ProductID, p.ProductName, SUM(od.Quantity) AS TotalQuantityOrdered
     FROM Products p
-    JOIN ProductCounts pc ON p.ProductID = pc.ProductID
-    ORDER BY pc.TotalQuantity DESC;
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE o.OrderDate >= DATEADD(month, -6, GETDATE())
+    GROUP BY p.ProductID, p.ProductName
+    ORDER BY TotalQuantityOrdered DESC
 
     --212. Get the details of orders where the ship country is the same as the supplier's country.
     --获取发货国与供应商所在国相同的订单的详细信息。
@@ -2168,23 +2109,14 @@
 
     --213. List all categories with products that have never been discontinued and have been ordered more than 10 times.
     --列出所有从未停产且订购次数超过10次的产品类别。
-    WITH DiscontinuedProducts AS (
-    SELECT ProductID
-    FROM Products
-    WHERE Discontinued = 1
-    ),
-    OrderedProductCounts AS (
-        SELECT od.ProductID, COUNT(od.OrderID) AS OrderCount
-        FROM [Order Details] od
-        GROUP BY od.ProductID
-    )
     SELECT DISTINCT c.CategoryID, c.CategoryName
     FROM Categories c
     JOIN Products p ON c.CategoryID = p.CategoryID
-    WHERE p.ProductID NOT IN (SELECT ProductID FROM DiscontinuedProducts)
-    AND p.ProductID IN (SELECT ProductID FROM OrderedProductCounts WHERE OrderCount > 10);
-
-
+    WHERE p.Discontinued = 0 AND (
+        SELECT COUNT(*)
+        FROM [Order Details] od
+        WHERE od.ProductID = p.ProductID
+    ) >10;
     --214. Retrieve the average quantity ordered for each product and compare it to the average stock quantity.
     --检索每种产品的平均订购量，并将其与平均库存量进行比较。
     WITH AverageOrderedQuantities AS (
@@ -2205,18 +2137,14 @@
 
     --215. Find the customers who have ordered products from suppliers in at least 3 different countries.
     --查找从至少3个不同国家的供应商处订购产品的客户。
-    WITH CustomerSupplierCountries AS (
-    SELECT c.CustomerID, COUNT(DISTINCT s.Country) AS CountryCount
+    SELECT c.CustomerID, c.CompanyName
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     JOIN Products p ON od.ProductID = p.ProductID
     JOIN Suppliers s ON p.SupplierID = s.SupplierID
-    GROUP BY c.CustomerID
-    )
-    SELECT CustomerID, CountryCount
-    FROM CustomerSupplierCountries
-    WHERE CountryCount >= 3;
+    GROUP BY c.CustomerID, c.CompanyName
+    HAVING COUNT(DISTINCT s.Country) >= 3;
 
 
     --216. Get all products that have a unit price within the range of the top 5 % most expensive products in their category.
@@ -2238,26 +2166,17 @@
 
     --217. List employees who have processed orders for products in every category.
     --列出处理过每个类别产品订单的员工。
-    WITH EmployeeOrderCategories AS (
-    SELECT e.EmployeeID, p.CategoryID
-    FROM Employees e
-    JOIN Orders o ON e.EmployeeID = o.EmployeeID
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    JOIN Products p ON od.ProductID = p.ProductID
-    ),
-    AllCategories AS (
-        SELECT DISTINCT CategoryID
-        FROM Products
-    )
-    SELECT e.EmployeeID, e.FirstName, e.LastName
+    SELECT EmployeeID, FirstName, LastName
     FROM Employees e
     WHERE NOT EXISTS (
-        SELECT 1
-        FROM AllCategories ac
+        SELECT c.CategoryID
+        FROM Categories c
         WHERE NOT EXISTS (
-            SELECT 1
-            FROM EmployeeOrderCategories eoc
-            WHERE eoc.EmployeeID = e.EmployeeID AND eoc.CategoryID = ac.CategoryID
+            SELECT p.ProductID
+            FROM Products p
+            JOIN [Order Details] od ON p.ProductID = od.ProductID
+            JOIN Orders o ON od.OrderID = o.OrderID
+            WHERE o.EmployeeID = e.EmployeeID AND p.CategoryID = c.CategoryID
         )
     );
 
@@ -2325,15 +2244,12 @@
     --获取去年订购的所有产品，且其再订购水平高于平均再订购水平。
     SELECT p.ProductID, p.ProductName, p.ReorderLevel
     FROM Products p
-    WHERE EXISTS (
-        SELECT 1
-        FROM [Order Details] od
-        JOIN Orders o ON od.OrderID = o.OrderID
-        WHERE od.ProductID = p.ProductID
-    ) AND p.ReorderLevel > (
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE YEAR(o.OrderDate) = YEAR(GETDATE()) AND ReorderLevel > (
         SELECT AVG(ReorderLevel)
         FROM Products
-    ) AND o.OrderDate > ‌DATEADD(YEAR,-1,GETDATE())
+    );
 
     --225. List the employees who have processed orders for customers with a postal code starting with "9" and "8".
     --列出为邮政编码以“9”和“8”开头的客户处理订单的员工。
@@ -2355,15 +2271,16 @@
 
     --227. Find the suppliers who have not supplied products to any customers with orders in 1994.
     --查找1994年未向任何有订单的客户供应产品的供应商。
-     SELECT s.SupplierID, s.CompanyName
-     FROM Suppliers s
-     WHERE s.SupplierID NOT IN (
-         SELECT DISTINCT p.SupplierID
-         FROM Products p
-         JOIN [Order Details] od ON p.ProductID = od.ProductID
-         JOIN Orders o ON od.OrderID = o.OrderID
-         WHERE YEAR(o.OrderDate) = 1994
-     );
+     SELECT SupplierID, CompanyName
+    FROM Suppliers
+    WHERE SupplierID NOT IN (
+        SELECT DISTINCT s.SupplierID
+        FROM Suppliers s
+        JOIN Products p ON s.SupplierID = p.SupplierID
+        JOIN [Order Details] od ON p.ProductID = od.ProductID
+        JOIN Orders o ON od.OrderID = o.OrderID
+        WHERE YEAR(o.OrderDate) = 1994
+    );
     --228. Get the names of customers who have placed orders with products that have a unit price higher than the average unit price of products in their category.
     --获取订购单价高于其类别中产品平均单价的产品的客户名称。
     SELECT DISTINCT c.CustomerID, c.CompanyName
@@ -2383,14 +2300,10 @@
     JOIN [Order Details] od ON p.ProductID = od.ProductID
     JOIN Orders o ON od.OrderID = o.OrderID
     WHERE o.CustomerID IN (
-        SELECT c.CustomerID
-        FROM Customers c
-        WHERE c.City IN (
-            SELECT TOP 3 City
-            FROM Orders oo
-            GROUP BY oo.ShipCity
-            ORDER BY COUNT(*) DESC
-        )
+        SELECT TOP 3 CustomerID
+        FROM Orders
+        GROUP BY CustomerID
+        ORDER BY COUNT(*) DESC   
     );
     --230. Retrieve the names and contact titles of suppliers who have shipped products to "Paris" and "London".
     --检索已将产品运往"Paris" and "London"的供应商的名称和联系方式。
@@ -2401,22 +2314,11 @@
     JOIN Orders o ON od.OrderID = o.OrderID
     WHERE o.ShipCity IN ('Paris', 'London')
     GROUP BY s.SupplierID, s.CompanyName, s.ContactTitle
-    HAVING COUNT(DISTINCT o.ShipCity) >= 2;
+
 
     --231. Find all orders with a freight cost that is above the median freight cost and was shipped by "Speedy Express".
     --查找运费高于运费中位数且由“Speedy Express”发货的所有订单。
-    WITH MedianFreight AS (
-    SELECT AVG(Freight) as Median
-    FROM Orders
-    WHERE ShipVia = (SELECT ShipperID FROM Shippers WHERE CompanyName = 'Speedy Express')
-    )
-    SELECT o.OrderID, o.ShipVia, o.Freight
-    FROM Orders o
-    WHERE o.ShipVia = (SELECT ShipperID FROM Shippers WHERE CompanyName = 'Speedy Express')
-    AND o.Freight > (
-        SELECT Median
-        FROM MedianFreight
-    );
+
 
     --232. Get the top 5 products with the highest average discount applied and list their total quantity ordered.
     --获取平均折扣最高的前5种产品，并列出其订购总量。
@@ -2459,30 +2361,30 @@
 
     --236. Get all products that have a unit price greater than the average for their supplier and have been ordered more than 10 times.
     --获取所有单价高于供应商平均价格且订购次数超过10次的产品。
-    WITH SupplierAvgUnitPrice AS (
-    SELECT SupplierID, AVG(UnitPrice) as AvgUnitPrice
-    FROM Products
-    GROUP BY SupplierID
-    )
-    SELECT p.ProductID, p.ProductName
+    SELECT DISTINCT p.ProductID, p.ProductName, p.UnitPrice
     FROM Products p
-    JOIN [Order Details] od ON p.ProductID = od.ProductID
-    WHERE p.UnitPrice > (SELECT AvgUnitPrice FROM SupplierAvgUnitPrice WHERE SupplierID = p.SupplierID)
-    GROUP BY p.ProductID, p.ProductName
-    HAVING COUNT(od.OrderID) > 10;
+    WHERE (
+        SELECT AVG(UnitPrice)
+        FROM Products
+        WHERE SupplierID = p.SupplierID
+    ) < p.UnitPrice
+    AND p.ProductID IN (
+        SELECT ProductID
+        FROM [Order Details]
+        GROUP BY ProductID
+        HAVING SUM(Quantity) > 10
+    );
 
     --237. List all categories with products that have a reorder level equal to the average reorder level of products in their category.
     --列出所有重新订购级别等于其类别中产品平均重新订购级别的产品类别。
-    WITH CategoryAvgReorderLevel AS (
-    SELECT CategoryID, AVG(ReorderLevel) as AvgReorderLevel
-    FROM Products
-    GROUP BY CategoryID
-    )
-    SELECT c.CategoryID, c.CategoryName, p.ProductID, p.ProductName
+    SELECT c.CategoryID, c.CategoryName, p.ProductID, p.ProductName, p.ReorderLevel
     FROM Categories c
     JOIN Products p ON c.CategoryID = p.CategoryID
-    WHERE p.ReorderLevel = (SELECT AvgReorderLevel FROM CategoryAvgReorderLevel WHERE CategoryID = p.CategoryID);
-
+    WHERE p.ReorderLevel = (
+        SELECT AVG(ReorderLevel)
+        FROM Products
+        WHERE CategoryID = c.CategoryID
+    );
     --238. Retrieve the names of suppliers who have provided products in the "Seafood" category and have a fax number.
     --检索提供“海鲜”类别产品并具有传真号码的供应商的名称。
     SELECT s.SupplierID, s.CompanyName
@@ -2493,16 +2395,11 @@
 
     --239. Find the top 5 cities with the highest total order amount and list the number of customers in each city.
     --找出订单总额最高的前5个城市，并列出每个城市的客户数量。
-    WITH OrderTotalAmount AS (
-    SELECT c.City, c.CustomerID, SUM(od.UnitPrice * od.Quantity) as TotalAmount
+    SELECT TOP 5 c.City, COUNT(DISTINCT c.CustomerID) AS NumberOfCustomers, SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
-    GROUP BY c.City, c.CustomerID
-    )
-    SELECT TOP 5 City, COUNT(CustomerID) as NumberOfCustomers, SUM(TotalAmount) as TotalOrderAmount
-    FROM OrderTotalAmount
-    GROUP BY City
+    GROUP BY c.City
     ORDER BY TotalOrderAmount DESC
 
     --240. Get the details of orders where the ship name contains "Express" and the freight cost is above $40.
@@ -2513,21 +2410,16 @@
 
     --241. List the top 3 most expensive products in each category and retrieve their supplier details.
     --列出每个类别中最昂贵的3种产品，并检索其供应商详细信息。
-    WITH CategoryTopProducts AS (
-    SELECT
-        p.ProductID,
-        p.ProductName,
-        p.UnitPrice,
-        p.CategoryID,
-        s.SupplierID,
-        s.CompanyName,
-        ROW_NUMBER() OVER (PARTITION BY p.CategoryID ORDER BY p.UnitPrice DESC) as RowNum
+    SELECT p.ProductID, p.ProductName, p.UnitPrice, c.CategoryName, s.SupplierID, s.CompanyName
     FROM Products p
+    JOIN Categories c ON p.CategoryID = c.CategoryID
     JOIN Suppliers s ON p.SupplierID = s.SupplierID
-    )
-    SELECT ProductID, ProductName, UnitPrice, CategoryID, SupplierID, CompanyName
-    FROM CategoryTopProducts
-    WHERE RowNum <= 3;
+    WHERE (
+        SELECT COUNT(*)
+        FROM Products p2
+        WHERE p2.CategoryID = p.CategoryID AND p2.UnitPrice > p.UnitPrice
+    ) < 3
+    ORDER BY c.CategoryName, p.UnitPrice DESC;
 
 
     --242. Retrieve the total number of orders placed by customers with a postal code starting with "1" and "2".
@@ -2616,83 +2508,58 @@
 
     --247. Find the top 10 products with the highest unit price that have been ordered in the last year.
     --查找去年订购的单价最高的前10种产品。
-    WITH OrderedProducts AS (
-    SELECT
-        od.ProductID,
-        od.UnitPrice,
-        o.OrderDate
-    FROM [Order Details] od
-    JOIN Orders o ON od.OrderID = o.OrderID
-    WHERE o.OrderDate >= DATEadd(YEAR, -1,GETDATE())
-    ),
-    TopProducts AS (
-        SELECT TOP 10
-            ProductID,
-            UnitPrice
-        FROM OrderedProducts
-        ORDER BY UnitPrice DESC
-   
-    )
-    SELECT
-        p.ProductID,
-        p.ProductName,
-        p.UnitPrice
+    SELECT TOP 10 p.ProductID, p.ProductName, p.UnitPrice
     FROM Products p
-    JOIN TopProducts tp ON p.ProductID = tp.ProductID;
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE o.OrderDate >= DATEADD(year, -1, GETDATE())
+    ORDER BY p.UnitPrice DESC
 
     --248. Get the details of orders where the ship country is the same as the supplier’s country and the freight cost is above the average.
     --获取发货国与供应商所在国相同且运费高于平均水平的订单详情。
-
+    SELECT o.OrderID, c.CompanyName AS Shipper, s.CompanyName AS Supplier, o.ShipCountry, o.Freight
+    FROM Orders o
+    JOIN Customers c ON o.CustomerID = c.CustomerID
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    JOIN Products p ON p.ProductID = od.ProductID
+    JOIN Suppliers s ON p.SupplierID = s.SupplierID
+    WHERE o.ShipCountry = s.Country
+      AND o.Freight > (
+        SELECT AVG(Freight)
+        FROM Orders
+      );
     --249. List all products that have been ordered by customers in cities with a total order amount greater than $1000.
     --列出城市客户订购的所有产品，订单总额超过1000美元。
-    WITH OrderDetailsWithTotalAmount AS (
-    SELECT
-        od.ProductID,
-        c.City as CustomerCity,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
-    FROM [Order Details] od
-    JOIN Orders o ON od.OrderID = o.OrderID
-    JOIN Customers c ON o.CustomerID = c.CustomerID
-    GROUP BY od.ProductID, c.City
-    ),
-    CitiesWithHighTotalAmount AS (
-        SELECT
-            CustomerCity
-        FROM OrderDetailsWithTotalAmount
-        WHERE TotalOrderAmount > 1000
-    )
-    SELECT
+    SELECT DISTINCT 
         p.ProductID,
-        p.ProductName,
-        o.OrderDate,
-        c.CompanyName as CustomerName,
-        c.City as CustomerCity
+        p.ProductName
     FROM Products p
     JOIN [Order Details] od ON p.ProductID = od.ProductID
     JOIN Orders o ON od.OrderID = o.OrderID
     JOIN Customers c ON o.CustomerID = c.CustomerID
-    WHERE c.City IN (SELECT CustomerCity FROM CitiesWithHighTotalAmount);
+    WHERE (
+        SELECT SUM(od2.UnitPrice * od2.Quantity)
+        FROM Orders o2
+        JOIN [Order Details] od2 ON o2.OrderID = od2.OrderID
+        WHERE o2.CustomerID = c.CustomerID
+    ) > 1000;
 
     --250. Retrieve the names of suppliers who have provided products with a unit price less than $20 and more than $50.
     --检索提供单价低于20美元但高于50美元的产品的供应商的名称。
-    WITH ProductPriceRanges AS (
-    SELECT
-        s.SupplierID,
-        MIN(od.UnitPrice) as MinUnitPrice,
-        MAX(od.UnitPrice) as MaxUnitPrice
-    FROM [Order Details] od
-    JOIN Products p ON od.ProductID = p.ProductID
-    JOIN Suppliers s ON p.SupplierID = s.SupplierID
-    GROUP BY s.SupplierID, s.CompanyName
-    )
-    SELECT
-        ss.SupplierID,
-        ss.CompanyName,
-        ppr.MINUnitPrice,
-        ppr.MaxUnitPrice
-    FROM ProductPriceRanges ppr
-    JOIN Suppliers ss ON ppr.SupplierID = ss.SupplierID
-    WHERE ppr.MINUnitPrice < 20 AND ppr.MaxUnitPrice > 50;
+    SELECT DISTINCT s.SupplierID,s.CompanyName
+    FROM Suppliers s
+    JOIN Products p ON s.SupplierID = p.SupplierID
+    WHERE EXISTS (
+        SELECT 1
+        FROM Products p2
+        WHERE p2.SupplierID = p.SupplierID
+          AND p2.UnitPrice < 20
+    ) AND EXISTS (
+        SELECT 1
+        FROM Products p3
+        WHERE p3.SupplierID = p.SupplierID
+          AND p3.UnitPrice > 50
+    );
 
 
     --251. Find the categories with products that have never been discontinued and have been ordered in every month of the last year.
@@ -2700,34 +2567,13 @@
 
     --252. Get the total number of orders for each category where the average order amount is greater than $200.
     --获取平均订单金额大于200美元的每个类别的订单总数。
-    WITH OrderDetailsWithTotalAmount AS (
-    SELECT
-        od.ProductID,
-        p.CategoryID,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
-    FROM [Order Details] od
-    JOIN Orders o ON od.OrderID = o.OrderID
-    JOIN Products p ON od.ProductID = p.ProductID
-    GROUP BY od.ProductID, p.CategoryID
-    ),
-    AverageOrderAmounts AS (
-        SELECT
-            CategoryID,
-            AVG(TotalOrderAmount) as AvgOrderAmount
-        FROM OrderDetailsWithTotalAmount
-        GROUP BY CategoryID
-    )
-    SELECT
-        c.CategoryID,
-        c.CategoryName,
-        COUNT(o.OrderID) as TotalNumberOfOrders
-    FROM AverageOrderAmounts aao
-    JOIN Categories c ON aao.CategoryID = c.CategoryID
-    JOIN Products p ON aao.CategoryID = p.CategoryID
+    SELECT c.CategoryID,c.CategoryName, COUNT(o.OrderID) AS TotalOrders
+    FROM Categories c
+    JOIN Products p ON c.CategoryID = p.CategoryID
     JOIN [Order Details] od ON p.ProductID = od.ProductID
     JOIN Orders o ON od.OrderID = o.OrderID
-    WHERE aao.AvgOrderAmount > 200
-    GROUP BY c.CategoryID, c.CategoryName;
+    GROUP BY c.CategoryID,c.CategoryName
+    HAVING AVG(od.UnitPrice * od.Quantity) > 200;
 
 
     --253. List all customers who have placed orders in every month of the last year and have a postal code starting with "1".
@@ -2736,34 +2582,12 @@
 
     --254. Retrieve the names of employees who have processed orders for the highest number of products and their total order amount.
     --检索处理过最多产品订单的员工姓名及其订单总额。
-    WITH EmployeeOrderDetails AS (
-    SELECT
-        e.EmployeeID,
-        CONCAT(e.FirstName, ' ', e.LastName) as EmployeeName,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
+    SELECT TOP 1 e.EmployeeID, e.FirstName, e.LastName, SUM(od.UnitPrice * od.Quantity) AS TotalAmount
     FROM Employees e
     JOIN Orders o ON e.EmployeeID = o.EmployeeID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     GROUP BY e.EmployeeID, e.FirstName, e.LastName
-    ),
-    EmployeeProductCounts AS (
-        SELECT
-            EmployeeID,
-            SUM(od.UnitPrice * od.Quantity) as TotalProductsProcessed
-        FROM Orders o
-        JOIN [Order Details] od ON o.OrderID = od.OrderID
-        GROUP BY EmployeeID
-    )
-    SELECT
-        eod.EmployeeName,
-        epc.TotalProductsProcessed,
-        eod.TotalOrderAmount
-    FROM EmployeeProductCounts epc
-    JOIN EmployeeOrderDetails eod ON epc.EmployeeID = eod.EmployeeID
-    WHERE epc.TotalProductsProcessed = (
-        SELECT MAX(TotalProductsProcessed)
-        FROM EmployeeProductCounts
-    );
+    ORDER BY COUNT(od.ProductID) DESC, TotalAmount DESC
 
 
     --255. Find the suppliers who have the highest number of products in categories where the average unit price is above $30.
@@ -2777,7 +2601,7 @@
     WHERE p.UnitPrice > 30
     GROUP BY s.SupplierID
     )
-    SELECT
+    SELECT TOP 1
         spc.SupplierID,
         s.CompanyName,
         spc.ProductCount
@@ -2791,185 +2615,100 @@
 
     --256. Get all products that have a unit price higher than the median unit price in their category and have been ordered more than 20 times.
     --获取所有单价高于其类别中单价中位数且订购次数超过20次的产品。
+    SELECT p.ProductID, p.ProductName
+    FROM Products p
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    WHERE p.UnitPrice > (
+        SELECT AVG(UnitPrice)
+        FROM Products p2
+        WHERE p2.CategoryID = p.CategoryID
+    ) AND od.Quantity > 20;
 
     --257. List all orders where the freight cost is above the average for the year 1997 and the order date is before the ship date.
     --列出运费高于1997年平均水平且订单日期早于发货日期的所有订单。
-        WITH YearlyFreightAverage AS (
-        SELECT
-            AVG(Freight) as AverageFreight
-        FROM Orders
-        WHERE YEAR(OrderDate) = 1997
-        )
-        SELECT
-            OrderID,
-            CustomerID,
-            OrderDate,
-            ShippedDate,
-            Freight
-        FROM Orders
-        WHERE Freight > (SELECT AverageFreight FROM YearlyFreightAverage)
-        AND OrderDate < ShippedDate;
+        SELECT o.OrderID, o.OrderDate, o.ShippedDate, o.Freight
+        FROM Orders o
+        WHERE o.Freight > (
+            SELECT AVG(Freight)
+            FROM Orders
+            WHERE YEAR(OrderDate) = 1997
+        ) AND o.OrderDate < o.ShippedDate;
 
     --258. Retrieve the top 5 customers with the highest average discount applied and their total order amount.
     --检索平均折扣最高的前5位客户及其总订单金额。
-    WITH CustomerDiscounts AS (
-    SELECT
-        c.CustomerID,
-        AVG(od.Discount) as AverageDiscount,
-        SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)) as TotalOrderAmount
+    SELECT TOP 5 c.CustomerID, c.CompanyName, AVG(od.Discount) AS AverageDiscount, SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)) AS TotalAmount
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
-    GROUP BY c.CustomerID
-    ),
-    RankedCustomers AS (
-        SELECT
-            CustomerID,
-            AverageDiscount,
-            TotalOrderAmount,
-            ROW_NUMBER() OVER (ORDER BY AverageDiscount DESC, TotalOrderAmount DESC) as Rank
-        FROM CustomerDiscounts
-    )
-    SELECT
-        CustomerID,
-        AverageDiscount,
-        TotalOrderAmount
-    FROM RankedCustomers
-    WHERE Rank <= 5;
+    GROUP BY c.CustomerID, c.CompanyName
+    ORDER BY AverageDiscount DESC, TotalAmount DESC
 
 
     --259. Find the products that have been ordered more than the average quantity ordered for their category and have a unit price above $25.
     --查找订购量超过其类别平均订购量且单价高于25美元的产品。
-    WITH CategoryAverageOrderQuantity AS (
-    SELECT
-        p.CategoryID,
-        AVG(od.Quantity) as AverageQuantity
+    SELECT DISTINCT p.ProductID, p.ProductName
     FROM Products p
     JOIN [Order Details] od ON p.ProductID = od.ProductID
-    GROUP BY p.CategoryID
-    ),
-    ProductOrderQuantities AS (
-        SELECT
-            od.ProductID,
-            SUM(od.Quantity) as TotalOrdered
-        FROM [Order Details] od
-        GROUP BY od.ProductID
-    )
-    SELECT
-        p.ProductID,
-        p.ProductName,
-        p.UnitPrice,
-        p.CategoryID,
-        poq.TotalOrdered
-    FROM Products p
-    JOIN ProductOrderQuantities poq ON p.ProductID = poq.ProductID
-    JOIN CategoryAverageOrderQuantity caoq ON p.CategoryID = caoq.CategoryID
-    WHERE poq.TotalOrdered > caoq.AverageQuantity
-    AND p.UnitPrice > 25;
+    WHERE od.Quantity > (
+        SELECT AVG(Quantity)
+        FROM [Order Details]
+        WHERE ProductID = p.ProductID
+    ) AND p.UnitPrice > 25
+    ORDER BY p.ProductID
 
 
     --260. Get the names of suppliers who have provided products with a quantity per unit description containing "Bottle" and "Can".
     --获取提供产品的供应商名称，每个单位描述包含"Bottle" and "Can"的数量。
-    WITH SuppliersWithQuantityDescriptions AS (
-    SELECT
-        s.SupplierID,
-        s.CompanyName
+    SELECT DISTINCT s.CompanyName
     FROM Suppliers s
     JOIN Products p ON s.SupplierID = p.SupplierID
     WHERE p.QuantityPerUnit LIKE '%Bottle%'
-       OR p.QuantityPerUnit LIKE '%Can%'
-    )
-    SELECT DISTINCT CompanyName
-    FROM SuppliersWithQuantityDescriptions;
+       OR p.QuantityPerUnit LIKE '%Can%';
 
 
     --261. List all employees who have shipped orders with a freight cost above the average and have processed orders for customers in more than 3 different countries.
     --列出所有运费高于平均水平并为3个以上不同国家的客户处理订单的员工。
-    WITH AverageFreight AS (
-    SELECT
-        AVG(Freight) as AvgFreightCost
-    FROM Orders
-    ),
-    EmployeeCountryCount AS (
-        SELECT
-            e.EmployeeID,
-            COUNT(DISTINCT c.Country) as CountryCount
-        FROM Employees e
-        JOIN Orders o ON e.EmployeeID = o.EmployeeID
-        JOIN Customers c ON o.CustomerID = c.CustomerID
-        GROUP BY e.EmployeeID
-    )
-    SELECT DISTINCT
-        e.EmployeeID,
-        e.FirstName,
-        e.LastName,
-        e.HireDate
+    SELECT DISTINCT e.EmployeeID, e.FirstName, e.LastName
     FROM Employees e
-    JOIN EmployeeCountryCount ecc ON ecc.EmployeeID = e.EmployeeID
     JOIN Orders o ON e.EmployeeID = o.EmployeeID
-    JOIN AverageFreight af ON o.Freight > af.AvgFreightCost
-    WHERE ecc.CountryCount > 3;
+    WHERE o.Freight > (
+        SELECT AVG(Freight)
+        FROM Orders
+    ) AND (
+        SELECT COUNT(DISTINCT c.Country)
+        FROM Customers c
+        JOIN Orders o2 ON c.CustomerID = o2.CustomerID
+        WHERE o2.EmployeeID = e.EmployeeID
+    ) > 3;
 
     --262. Retrieve the total number of products in stock for each category where the reorder level is above the average for products in their category.
     --检索重新订购水平高于其类别中产品平均水平的每个类别的库存产品总数。
-    WITH CategoryReorderLevelAverage AS (
-    SELECT
-        p.CategoryID,
-        AVG(p.ReorderLevel) as AvgReorderLevel
-    FROM Products p
-    GROUP BY p.CategoryID
-    ),
-    ProductsInStockAboveAvgReorderLevel AS (
-        SELECT
-            p.ProductID,
-            p.ProductName,
-            p.UnitPrice,
-            p.UnitsInStock,
-            p.UnitsOnOrder,
-            p.ReorderLevel,
-            c.CategoryName
-        FROM Products p
-        JOIN Categories c ON p.CategoryID = c.CategoryID
-        WHERE p.ReorderLevel > (SELECT AvgReorderLevel
-                                 FROM CategoryReorderLevelAverage
-                                 WHERE CategoryReorderLevelAverage.CategoryID = p.CategoryID)
+   SELECT c.CategoryName, SUM(p.UnitsInStock) AS TotalUnitsInStock
+    FROM Categories c
+    JOIN Products p ON c.CategoryID = p.CategoryID
+    WHERE p.ReorderLevel > (
+        SELECT AVG(ReorderLevel)
+        FROM Products
+        WHERE CategoryID = p.CategoryID
     )
-    SELECT
-        p.CategoryName,
-        SUM(p.UnitsInStock) as TotalUnitsInStock
-    FROM ProductsInStockAboveAvgReorderLevel p
-    GROUP BY p.CategoryName;
+    GROUP BY c.CategoryName;
 
 
     --263. Find the customers who have placed orders for products in categories where the average quantity ordered is above 20.
     --查找在平均订购量超过20的类别中订购产品的客户。
-    WITH CategoryAverageOrderQuantity AS (
-    SELECT
-        p.CategoryID,
-        AVG(od.Quantity) as AverageQuantity
-    FROM Products p
-    JOIN [Order Details] od ON p.ProductID = od.ProductID
-    GROUP BY p.CategoryID
-    ),
-    OrdersByCategoryAverage AS (
-        SELECT
-            c.CustomerID,
-            c.CompanyName
-        FROM Customers c
-        WHERE EXISTS (
-            SELECT 1
-            FROM Orders o
-            JOIN [Order Details] od ON o.OrderID = od.OrderID
-            JOIN Products p ON od.ProductID = p.ProductID
-            WHERE p.CategoryID IN (
-                SELECT CategoryID
-                FROM CategoryAverageOrderQuantity
-                WHERE AverageQuantity >20
-            )
-        )
+   SELECT c.CustomerID, c.CompanyName
+    FROM Customers c
+    JOIN Orders o ON c.CustomerID = o.CustomerID
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE p.CategoryID IN (
+        SELECT CategoryID
+        FROM Products
+        JOIN [Order Details] od2 ON Products.ProductID = od2.ProductID
+        GROUP BY CategoryID
+        HAVING AVG(od2.Quantity) > 20
     )
-    SELECT DISTINCT CustomerID, CompanyName
-    FROM OrdersByCategoryAverage;
+    GROUP BY c.CustomerID, c.CompanyName;
 
 
     --264. Get all orders where the ship city is the same as the customer’s city and the order amount is above the median order amount.
@@ -2979,28 +2718,17 @@
     --265. List all categories with products that have a reorder level less than the average reorder level for their category and have been ordered more than 5 times.
     --列出所有重新订购级别低于其类别平均重新订购级别且订购次数超过5次的产品类别。
 
-    WITH ProductReorderLevels AS (
-    SELECT
-        p.CategoryID,
-        AVG(p.ReorderLevel) as AverageReorderLevel
-    FROM Products p
-    GROUP BY p.CategoryID
-    ),
-    ProductOrderCounts AS (
-        SELECT
-            od.ProductID,
-            COUNT(od.OrderID) as OrderCount
-        FROM [Order Details] od
-        GROUP BY od.ProductID
-    )
-    SELECT
-        c.CategoryName,
-        p.ProductID,
-        p.ProductName
+    SELECT c.CategoryName, p.ProductName, p.ReorderLevel
     FROM Categories c
     JOIN Products p ON c.CategoryID = p.CategoryID
-    WHERE p.ReorderLevel < (SELECT AverageReorderLevel FROM ProductReorderLevels WHERE CategoryID = p.CategoryID)
-      AND p.ProductID IN (SELECT ProductID FROM ProductOrderCounts WHERE OrderCount > 5);
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    WHERE p.ReorderLevel < (
+        SELECT AVG(ReorderLevel)
+        FROM Products
+        WHERE CategoryID = p.CategoryID
+    )
+    GROUP BY c.CategoryName, p.ProductName, p.ReorderLevel
+    HAVING COUNT(od.OrderID) > 5;
 
     --266. Retrieve the names of suppliers who have provided products with a unit price within the range of the top 5 % most expensive products.
     --检索提供单价在前5%最昂贵产品范围内的产品的供应商名称。
@@ -3028,86 +2756,69 @@
 
     --267. Find the top 10 cities with the most customers and list the total order amount for each city.
     --找出客户最多的前10个城市，并列出每个城市的订单总额。
-    WITH CustomerCityTotals AS (
-    SELECT
+    SELECT TOP 10
         c.City,
-        COUNT(c.CustomerID) as TotalCustomers,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
+        SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     GROUP BY c.City
-    )
-    SELECT TOP 10
-        City,
-        TotalCustomers,
-        TotalOrderAmount
-    FROM CustomerCityTotals
-    ORDER BY TotalCustomers DESC, TotalOrderAmount DESC
+    ORDER BY COUNT(c.CustomerID) DESC, TotalOrderAmount DESC
 
 
     --268. Get the details of orders where the ship country is "USA" and the order amount is greater than the average order amount for the year 1996.
     --获取发货国为“USA”且订单金额大于1996年平均订单金额的订单详情。
-
+    SELECT
+        o.OrderID,
+        o.ShipCountry,
+        o.OrderDate,
+        SUM(od.UnitPrice * od.Quantity) AS OrderAmount
+    FROM Orders o
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    WHERE o.ShipCountry = 'USA'
+    AND (o.OrderDate >= '1996-01-01' AND o.OrderDate < '1997-01-01')
+    GROUP BY o.OrderID, o.ShipCountry, o.OrderDate
+    HAVING SUM(od.UnitPrice * od.Quantity) > (
+        SELECT AVG(TotalAmount) FROM (
+            SELECT SUM(UnitPrice * Quantity) AS TotalAmount
+            FROM Orders o
+            JOIN [Order Details] od ON o.OrderID = od.OrderID
+            WHERE o.OrderDate >= '1996-01-01' AND o.OrderDate < '1997-01-01'
+        ) AS Subquery
+    );
 
     --269. List all products with a unit price greater than the average unit price in their category and have been ordered in the last 6 months.
     --列出所有单价高于其类别平均单价且在过去6个月内订购的产品。
-    WITH AvgUnitPrice AS (
     SELECT
-        p.CategoryID,
-        AVG(p.UnitPrice) as AverageUnitPrice
-    FROM Products p
-    GROUP BY p.CategoryID
-    ),
-    RecentOrders AS (
-        SELECT
-            od.ProductID
-        FROM [Order Details] od
-        JOIN Orders o ON od.OrderID = o.OrderID
-        WHERE o.OrderDate >= DATEADD(month, -6, GETDATE())
-    )
-    SELECT DISTINCT
         p.ProductID,
         p.ProductName,
-        p.UnitPrice,
-        p.CategoryID
+        p.UnitPrice
     FROM Products p
-    JOIN AvgUnitPrice au ON p.CategoryID = au.CategoryID
-    WHERE p.UnitPrice > au.AverageUnitPrice
-      AND p.ProductID IN (SELECT ProductID FROM RecentOrders);
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE p.UnitPrice > (
+        SELECT AVG(UnitPrice) FROM Products WHERE CategoryID = p.CategoryID
+    )
+    AND o.OrderDate >= DATEADD(month, -6, GETDATE());
 
     --270. Retrieve the names of employees who have shipped orders to customers with postal codes starting with "9" and "8" and have processed more than 20 orders.
     --检索已向邮政编码以“9”和“8”开头的客户发送订单并处理了20多个订单的员工姓名。
-    WITH OrderDetails AS (
     SELECT
-        o.EmployeeID,
-        COUNT(o.OrderID) as OrderCount
-    FROM Orders o
-    JOIN Customers c ON o.CustomerID = c.CustomerID
-    WHERE (c.PostalCode LIKE '9%' OR c.PostalCode LIKE '8%')
-    GROUP BY o.EmployeeID
-    )
-    SELECT DISTINCT
         e.EmployeeID,
         e.FirstName,
         e.LastName
     FROM Employees e
-    JOIN OrderDetails od ON e.EmployeeID = od.EmployeeID
-    WHERE od.OrderCount > 20;
+    JOIN Orders o ON e.EmployeeID = o.EmployeeID
+    WHERE EXISTS (
+        SELECT 1 FROM Customers c WHERE o.CustomerID = c.CustomerID AND (c.PostalCode LIKE '9%' OR c.PostalCode LIKE '8%')
+    )
+    GROUP BY e.EmployeeID, e.FirstName, e.LastName
+    HAVING COUNT(o.OrderID) > 20;
 
 
     --271. Find the top 5 suppliers with the highest total quantity of products supplied and list their contact details.
     --找到供应产品总量最高的前5家供应商，并列出他们的联系方式。
     
-    WITH SupplierProductTotals AS (
-    SELECT
-        s.SupplierID,
-        SUM(od.Quantity) as TotalQuantity
-    FROM Suppliers s
-    JOIN Products p ON s.SupplierID = p.SupplierID
-    JOIN [Order Details] od ON p.ProductID = od.ProductID
-    GROUP BY s.SupplierID
-    )
     SELECT TOP 5
         s.SupplierID,
         s.CompanyName,
@@ -3115,20 +2826,61 @@
         s.ContactTitle,
         s.Address,
         s.City,
+        s.Region,
         s.PostalCode,
         s.Country,
-        sp.TotalQuantity
+        s.Phone,
+    SUM(od.Quantity) AS TotalQuantity
     FROM Suppliers s
-    JOIN SupplierProductTotals sp ON s.SupplierID = sp.SupplierID
-    ORDER BY sp.TotalQuantity DESC
+    JOIN Products p ON p.SupplierID = s.SupplierID
+    JOIN [Order Details] od ON od.ProductID = p.ProductID
+    GROUP BY s.SupplierID, s.CompanyName, s.ContactName, s.ContactTitle, s.Address, s.City, s.Region, s.PostalCode, s.Country, s.Phone
+    ORDER BY TotalQuantity DESC
 
 
     --272. Get all orders where the total order amount is greater than the average for orders shipped by "Speedy Express" and "United Package".
     --获取所有订单总额大于“Speedy Express”和“United Package”发货订单平均值的订单。
-
+    SELECT
+    o.OrderID,
+    o.OrderDate,
+    c.CompanyName AS CustomerName,
+    s.CompanyName AS ShipperName,
+    SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
+    FROM Orders o
+    JOIN [Order Details] od ON o.OrderID = od.OrderID
+    JOIN Customers c ON o.CustomerID = c.CustomerID
+    JOIN Shippers s ON o.ShipVia = s.ShipperID
+    WHERE (s.CompanyName = 'Speedy Express' OR s.CompanyName = 'United Package')
+    GROUP BY o.OrderID, o.OrderDate, c.CompanyName, s.CompanyName
+    HAVING SUM(od.UnitPrice * od.Quantity) > (
+        SELECT AVG(TotalOrderAmount) FROM (
+            SELECT
+                SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
+            FROM Orders o
+            JOIN [Order Details] od ON o.OrderID = od.OrderID
+            JOIN Customers c ON o.CustomerID = c.CustomerID
+            JOIN Shippers s ON o.ShipVia = s.ShipperID
+            WHERE (s.CompanyName = 'Speedy Express' OR s.CompanyName = 'United Package')
+        ) AS Subquery
+    );
     --273. List all products that have been ordered in every year from 1995 to 1997 and have a reorder level higher than the average for their category.
     --列出1995年至1997年每年订购的所有产品，并且其再订购水平高于其类别的平均水平
-
+    SELECT
+    p.ProductID,
+    p.ProductName,
+    p.ReorderLevel,
+    c.CategoryName
+    FROM Products p
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    WHERE p.ProductID IN (
+        SELECT od.ProductID FROM [Order Details]  od 
+	    JOIN Orders o ON o.OrderID = od.OrderID 
+	    WHERE YEAR(o.OrderDate) BETWEEN 1995 AND 1997 
+	    GROUP BY od.ProductID HAVING COUNT(DISTINCT YEAR(o.OrderDate)) = 3
+    )
+    AND p.ReorderLevel > (
+        SELECT AVG(ReorderLevel) FROM Products WHERE CategoryID = p.CategoryID
+    );
 
     --274. Retrieve the names of suppliers who have provided products with a quantity per unit description containing "Pack" and "Box" and have a contact title starting with "Sales".
     --检索供应商的名称，这些供应商提供了每单位数量的产品描述，其中包含"Pack" 和"Box"，联系人标题以“销售”开头。
@@ -3144,70 +2896,44 @@
 
     --275. Find the customers who have placed orders  more than 5 different categories.
     --查找已下订单超过5个不同类别的客户。
-    WITH CategoryOrders AS (
     SELECT
-        o.CustomerID,
-        COUNT(DISTINCT p.CategoryID) as CategoryCount
-    FROM Orders o
+    c.CustomerID,
+    c.CompanyName
+    FROM Customers c
+    JOIN Orders o ON c.CustomerID = o.CustomerID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     JOIN Products p ON od.ProductID = p.ProductID
-    GROUP BY o.CustomerID
-    )
-    SELECT
-        c.CustomerID,
-        c.CompanyName,
-        c.ContactName,
-        c.ContactTitle
-    FROM Customers c
-    JOIN CategoryOrders co ON c.CustomerID = co.CustomerID
-    WHERE co.CategoryCount > 5;
+    GROUP BY c.CustomerID, c.CompanyName
+    HAVING COUNT(DISTINCT p.CategoryID) > 5;
 
 
     --276. Get the total number of orders placed by customers who have ordered products in every month of the year 1997.
     --获取1997年每个月订购产品的客户的订单总数。
-    WITH MonthlyOrderCounts AS (
-    SELECT
-        o.CustomerID,
-        MONTH(o.OrderDate) as OrderMonth
+    SELECT DISTINCT o.CustomerID
     FROM Orders o
-    WHERE YEAR(o.OrderDate) = 1997
-    GROUP BY o.CustomerID, MONTH(o.OrderDate)
-    ),
-    CustomerYearlyOrders AS (
-        SELECT
-            CustomerID,
-            COUNT(DISTINCT MONTH(OrderDate)) as UniqueMonths
-        FROM Orders
-        WHERE YEAR(OrderDate) = 1997
-        GROUP BY CustomerID
-    )
-    SELECT
-        COUNT(*) as TotalCustomers,
-        SUM(UniqueMonths) as TotalUniqueMonths,
-        SUM(CASE WHEN UniqueMonths = 12 THEN 1 ELSE 0 END) as CompleteYearCustomers
-    FROM CustomerYearlyOrders
-    WHERE UniqueMonths = 12;
+    WHERE YEAR(o.OrderDate)=1997
+    GROUP BY o.CustomerID
+    HAVING COUNT(DISTINCT MONTH(o.OrderDate)) = 12;
 
 
     --277. List all products with a unit price that is within the range of the average unit price plus one standard deviation for their category.
     --列出所有单价在平均单价加上其类别的一个标准偏差范围内的产品。
-    WITH CategoryStats AS (
     SELECT
-        p.CategoryID,
-        AVG(p.UnitPrice) as AvgUnitPrice,
-        STDEV(p.UnitPrice) as StdDevUnitPrice
-    FROM Products p
-    GROUP BY p.CategoryID
-    )
-    SELECT
+        p.ProductID,
         p.ProductName,
         p.UnitPrice,
-        c.AvgUnitPrice,
-        c.StdDevUnitPrice
+        c.CategoryName
     FROM Products p
-    JOIN CategoryStats c ON p.CategoryID = c.CategoryID
-    WHERE p.UnitPrice BETWEEN (c.AvgUnitPrice - c.StdDevUnitPrice) AND (c.AvgUnitPrice + c.StdDevUnitPrice);
-
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    WHERE p.UnitPrice BETWEEN (
+        SELECT AVG(UnitPrice) - STDEV(UnitPrice)
+        FROM Products
+        WHERE CategoryID = p.CategoryID
+    ) AND (
+        SELECT AVG(UnitPrice) + STDEV(UnitPrice)
+        FROM Products
+        WHERE CategoryID = p.CategoryID
+    );
 
     --278. Retrieve the names of employees who have processed orders with the maximum number of products ordered and their total freight cost.
     --检索已处理订单的员工姓名，订单中订购的产品数量最多，以及他们的总运费。
@@ -3238,84 +2964,31 @@
 
     --279. Find the top 3 categories with the highest total quantity of products ordered and list their average unit price.
     --查找订购产品总量最高的前3个类别，并列出其平均单价
-    WITH CategoryOrderDetails AS (
-    SELECT
-        p.CategoryID,
-        SUM(od.Quantity) as TotalQuantity,
-        AVG(p.UnitPrice) as AverageUnitPrice
-    FROM Products p
+    SELECT TOP 3
+    c.CategoryID,
+    c.CategoryName,
+    AVG(od.UnitPrice) AS AverageUnitPrice,
+    SUM(od.Quantity) AS TotalQuantityOrdered
+    FROM Categories c
+    JOIN Products p ON c.CategoryID = p.CategoryID
     JOIN [Order Details] od ON p.ProductID = od.ProductID
-    GROUP BY p.CategoryID
-    ),
-    TopCategories AS (
-        SELECT
-            CategoryID,
-            TotalQuantity,
-            AverageUnitPrice,
-            ROW_NUMBER() OVER (ORDER BY TotalQuantity DESC) as Rank
-        FROM CategoryOrderDetails
-    )
-    SELECT
-        c.CategoryName,
-        TopCategories.TotalQuantity,
-        TopCategories.AverageUnitPrice
-    FROM TopCategories
-    JOIN Categories c ON TopCategories.CategoryID = c.CategoryID
-    WHERE TopCategories.Rank <= 3
+    GROUP BY c.CategoryID, c.CategoryName
+    ORDER BY TotalQuantityOrdered DESC
 
 
     --280. Get all orders where the order amount is above the average for orders shipped by "Federal Shipping" and "Speedy Express".
     --获取所有订单金额高于“Federal Shipping”和“Speedy Express”配送订单平均值的订单
-    WITH OrderDetails AS (
-    SELECT
-        o.OrderID,
-        SUM(od.Quantity * od.UnitPrice) as TotalAmount
+    SELECT *
     FROM Orders o
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    GROUP BY o.OrderID
-),
-AverageAmount AS (
-    SELECT
-        AVG(TotalAmount) as AverageAmount
-    FROM OrderDetails odr
-    WHERE EXISTS (
-        SELECT 1
-        FROM Orders o
-        JOIN [Order Details] od ON o.OrderID = od.OrderID
-        WHERE o.ShipVia IN (2, 3)
-    )
-    )
-    SELECT
-        o.OrderID,
-        o.CustomerID,
-        o.EmployeeID,
-        o.OrderDate,
-        o.RequiredDate,
-        o.ShippedDate,
-        o.ShipVia
-    FROM Orders o
-    JOIN OrderDetails od ON o.OrderID = od.OrderID
-    WHERE od.TotalAmount > (SELECT AverageAmount FROM AverageAmount);
+    JOIN Shippers s ON s.ShipperID = o.ShipVia
+    WHERE  (o.Freight > (
+            SELECT AVG(Freight)
+            FROM Orders
+            WHERE ShipVia IN (SELECT DISTINCT ShipperID FROM Shippers WHERE s.CompanyName = 'Federal Shipping' OR s.CompanyName = 'Speedy Express' )
+        ));
+
     --281 List all suppliers who have shipped products to "London" and "Paris" and have provided products in the "Beverages" category.
-    WITH SupplierShipmentDetails AS (
-    SELECT
-        s.SupplierID,
-        SUM(CASE WHEN o.ShipCity = 'London' THEN 1 ELSE 0 END) as LondonShipments,
-        SUM(CASE WHEN o.ShipCity = 'Paris' THEN 1 ELSE 0 END) as ParisShipments
-    FROM Suppliers s
-    JOIN Products p ON s.SupplierID = p.SupplierID
-    JOIN [Order Details] od ON p.ProductID = od.ProductID
-    JOIN Orders o ON od.OrderID = o.OrderID
-    WHERE p.CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Beverages')
-    GROUP BY s.SupplierID
-),
-SuppliersWithBothShipmentCities AS (
-    SELECT
-        SupplierID
-    FROM SupplierShipmentDetails
-    WHERE LondonShipments > 0 AND ParisShipments > 0
-    )
-    SELECT
+    SELECT 
         s.SupplierID,
         s.CompanyName,
         s.ContactName,
@@ -3328,41 +3001,30 @@ SuppliersWithBothShipmentCities AS (
         s.Fax,
         s.HomePage
     FROM Suppliers s
-    JOIN SuppliersWithBothShipmentCities swb ON s.SupplierID = swb.SupplierID;
+    JOIN Products p ON s.SupplierID = p.SupplierID
+    JOIN [Order Details] od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    JOIN Categories cg ON cg.CategoryID = p.CategoryID
+    WHERE (o.ShipCity = 'London' OR o.ShipCity = 'Paris')
+        AND cg.CategoryName = 'Beverages';
 
 
     --282. Retrieve the names of customers who have ordered products from suppliers in more than 5 different countries.
     --检索从5个以上不同国家的供应商处订购产品的客户的姓名。
-    WITH CustomerSupplierCountryCount AS (
     SELECT
-        c.CustomerID,
-        COUNT(DISTINCT s.Country) as CountryCount
+    c.CustomerID,
+    c.CompanyName
     FROM Customers c
-    JOIN Orders o ON c.CustomerID = o.CustomerID
-    JOIN [Order Details] od ON o.OrderID = od.OrderID
-    JOIN Products p ON od.ProductID = p.ProductID
-    JOIN Suppliers s ON p.SupplierID = s.SupplierID
-    GROUP BY c.CustomerID
-    ),
-    CustomersWithMoreThanFiveCountries AS (
-        SELECT
-            CustomerID
-        FROM CustomerSupplierCountryCount
-        WHERE CountryCount > 5
-    )
-    SELECT
-        c.CustomerID,
-        c.CompanyName,
-        c.ContactName,
-        c.ContactTitle,
-        c.Address,
-        c.City,
-        c.PostalCode,
-        c.Country,
-        c.Phone,
-        c.Fax
-    FROM Customers c
-    JOIN CustomersWithMoreThanFiveCountries cwmc ON c.CustomerID = cwmc.CustomerID;
+    WHERE EXISTS (
+        SELECT 1
+        FROM Orders o
+        JOIN [Order Details] od ON o.OrderID = od.OrderID
+        JOIN Products p ON od.ProductID = p.ProductID
+        JOIN Suppliers s ON p.SupplierID = s.SupplierID
+        WHERE o.CustomerID = c.CustomerID
+        GROUP BY o.CustomerID
+        HAVING COUNT(DISTINCT s.Country) > 5
+    );
 
 
     --283. Find the products that have been ordered more than the median quantity ordered and have a unit price above $30.
@@ -3371,30 +3033,35 @@ SuppliersWithBothShipmentCities AS (
 
     --284. Get the total order amount for each employee and list them in descending order of the total amount.
     --获取每位员工的订单总额，并按总额降序排列
-    WITH EmployeeOrderAmounts AS (
     SELECT
-        e.EmployeeID,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
+    e.EmployeeID,
+    e.FirstName,
+    e.LastName,
+    SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
     FROM Employees e
     JOIN Orders o ON e.EmployeeID = o.EmployeeID
     JOIN [Order Details] od ON o.OrderID = od.OrderID
     GROUP BY e.EmployeeID, e.FirstName, e.LastName
-    )
-    SELECT
-        e.EmployeeID,
-        e.FirstName,
-        e.LastName,
-        e.Title,
-        e.HomePhone,   
-        e.Extension,
-        empoa.TotalOrderAmount
-    FROM Employees e
-    JOIN EmployeeOrderAmounts empoa ON e.EmployeeID = empoa.EmployeeID
-    ORDER BY empoa.TotalOrderAmount DESC;
+    ORDER BY TotalOrderAmount DESC;
 
 
     --285. List all categories with products that have a unit price higher than the median unit price for their category and have been ordered more than 10 times.
     --列出所有单价高于其类别中位单价且订购次数超过10次的产品类别
+    SELECT
+    c.CategoryID,
+    c.CategoryName
+    FROM Categories c
+    JOIN Products p ON c.CategoryID = p.CategoryID
+    WHERE p.UnitPrice > (
+        SELECT AVG(UnitPrice)
+        FROM Products
+        WHERE CategoryID = p.CategoryID
+    ) AND p.ProductID IN (
+        SELECT ProductID
+        FROM [Order Details]
+        GROUP BY ProductID
+        HAVING COUNT(*) > 10
+    );
 
     --286. Retrieve the names of suppliers who have provided products with a quantity per unit description containing "Bottle" or "Pack" and have a fax number.
     --检索提供产品的供应商的名称，每个单位描述包含“Bottle”或“Pack”的数量，并有传真号码。
@@ -3406,28 +3073,17 @@ SuppliersWithBothShipmentCities AS (
 
     --287. Find the top 5 products with the highest quantity ordered in the last year and their total order amount.
     --查找去年订购数量最多的前5种产品及其总订单金额。
-    WITH ProductOrderDetails AS (
-    SELECT
-        p.ProductID,
-        p.ProductName,
-        SUM(od.Quantity) as TotalQuantity,
-        SUM(od.UnitPrice * od.Quantity) as TotalOrderAmount
+    SELECT TOP 5
+    p.ProductID,
+    p.ProductName,
+    SUM(od.Quantity) AS TotalQuantityOrdered,
+    SUM(od.UnitPrice * od.Quantity) AS TotalOrderAmount
     FROM Products p
     JOIN [Order Details] od ON p.ProductID = od.ProductID
     JOIN Orders o ON od.OrderID = o.OrderID
-    WHERE o.OrderDate >= DATEADD(YEAR,-1,GETDATE())
+    WHERE o.OrderDate >= DATEADD(year, -1, GETDATE())
     GROUP BY p.ProductID, p.ProductName
-    ),
-    TopProducts AS (
-        SELECT TOP 5
-            ProductID,
-            ProductName,
-            TotalQuantity,
-            TotalOrderAmount
-        FROM ProductOrderDetails
-        ORDER BY TotalQuantity DESC
-       )
-    SELECT * FROM TopProducts;
+    ORDER BY TotalQuantityOrdered DESC
 
 
     --288. Get all orders where the ship country is "Brazil" and the order date is within the first quarter of 1997.
