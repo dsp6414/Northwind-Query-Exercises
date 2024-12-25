@@ -151,7 +151,7 @@
 
     SELECT *
     FROM Products
-    WHERE ProductID NOT IN(SELECT ProductID FROM Orders);
+    WHERE ProductID NOT IN(SELECT DISTINCT ProductID FROM Orders);
              
 
     --20 Get all orders with a freight cost greater than 50.
@@ -165,7 +165,7 @@
     --21.Retrieve names of all categories.
     --检索所有类别的名称。   
 
-    SELECT CategoryName
+    SELECT DISTINCT CategoryName
     FROM Categories;
              
 
@@ -219,11 +219,11 @@
     --28. Retrieve the names of all customers who have placed more than 5 orders.
     --检索所有下单超过5个的客户的姓名。   
 
-    SELECT c.CompanyName
+    SELECT c.CustomerID,c.CompanyName
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     GROUP BY c.CustomerID, c.CompanyName
-    HAVING COUNT(o.OrderID) > 5;
+    HAVING COUNT(DISTINCT o.OrderID) > 5;
              
 
     --29. List products with no quantity on order.
@@ -231,17 +231,17 @@
 
     SELECT*
     FROM Products as p
-    WHERE p.ProductID not in (SELECT DISTINCT od.ProductID from[Order Details] as od) ;
+    WHERE p.ProductID NOT IN (SELECT DISTINCT od.ProductID from[Order Details] as od) ;
              
 
     --30. Get all categories with more than 10 products.
     --获取包含10种以上产品的所有类别。   
 
-    SELECT c.CategoryName
+    SELECT c.CategoryID,c.CategoryName
     FROM Categories c
     JOIN Products p ON c.CategoryID = p.CategoryID
     GROUP BY c.CategoryID, c.CategoryName
-    HAVING COUNT(p.ProductID) > 10;
+    HAVING COUNT(DISTINCT p.ProductID) > 10;
              
 
     --31.Find the customer with the most recent order.
@@ -292,7 +292,7 @@
 
     SELECT *
     FROM Orders
-    WHERE(DATEPART(month, OrderDate) BETWEEN 1 AND 3) AND DATEPART(year, OrderDate)= 1997;
+    WHERE(DATEPART(month, OrderDate) BETWEEN 1 AND 3) AND YEAR(OrderDate)= 1997;
             
 
     --37. Retrieve products that have a unit price between $20 and $50.
@@ -379,7 +379,7 @@
 
     SELECT*
     FROM Orders
-    WHERE DATEPART(year, OrderDate) = 1997;
+    WHERE DATEPART(YEAR, OrderDate) = 1997;
              
 
     --48.List all suppliers from "Canada" who have a phone number starting with "514".
@@ -388,7 +388,7 @@
 
     SELECT*
     FROM Suppliers
-    WHERE Country = 'Canada' AND Phone LIKE '%(514)%';
+    WHERE Country = 'Canada' AND Phone LIKE '514%';
             
 
     --49. Find products that have been ordered more than 50 times.
@@ -399,7 +399,7 @@
     FROM Products p
     JOIN[Order Details] od ON p.ProductID = od.ProductID
     GROUP BY p.ProductID, p.ProductName
-    HAVING SUM(od.Quantity) > 50;
+    HAVING SUM(DISTINCT od.OrderID) > 50;
              
 
     --50. Get the names of all employees who are not managers.
@@ -407,7 +407,7 @@
 
     SELECT FirstName, LastName
     FROM Employees
-    WHERE Title NOT LIKE 'Manager';
+    WHERE Title NOT LIKE '%Manager%';
              
     --51. List orders where the ship country is "Mexico".
     --列出发货国为“Mexico”的订单。   
@@ -487,7 +487,7 @@
     --查找由3个以上不同客户订购的产品
    
 
-    SELECT p.ProductName, COUNT(DISTINCT o.CustomerID) AS NumberOfDifferentCustomers
+    SELECT p.ProductID,p.ProductName, COUNT(DISTINCT o.CustomerID) AS NumberOfDifferentCustomers
     FROM Products p
     JOIN[Order Details] od ON p.ProductID = od.ProductID
     JOIN Orders o On o.OrderID = od.OrderID
@@ -526,7 +526,7 @@
     --65.Find the supplier with the most products.
     --找到产品最多的供应商。   
 
-    SELECT TOP 1 s.SupplierID, s.CompanyName, COUNT(p.ProductID) AS NumberOfProducts
+    SELECT TOP 1 s.SupplierID, s.CompanyName, COUNT(DISTINCT p.ProductID) AS NumberOfProducts
     FROM Suppliers s
     JOIN Products p ON s.SupplierID = p.SupplierID
     GROUP BY s.SupplierID, s.CompanyName
@@ -538,7 +538,7 @@
 
     SELECT*
     FROM Orders
-    WHERE OrderDate > '1998-01-01';
+    WHERE OrderDate > CAST('1998-01-01' AS DATETIME);
              
 
     --67. List products with a unit price that is a multiple of 5.
@@ -556,7 +556,7 @@
     FROM Customers c
     JOIN Orders o ON c.CustomerID = o.CustomerID
     GROUP BY c.CustomerID, c.CompanyName
-    Having COUNT(o.OrderID) >= 3
+    Having COUNT(DISTINCT o.OrderID) >= 3
              
 
 
@@ -573,9 +573,9 @@
     --70. Get the details of orders that were shipped in "London".
     --获取在“London”发货的订单的详细信息。   
 
-    SELECT*
-    FROM Orders o
-    JOIN[Order Details] od ON o.OrderID = od.OrderID
+    SELECT *
+    FROM [Order Details] od
+    JOIN Orders o ON o.OrderID = od.OrderID
     WHERE o.ShipCity = 'London';
 
 
@@ -587,9 +587,14 @@
     WHERE Discontinued = 1 AND UnitPrice > 30;
              
 
-    --72.-- Retrieve employees who have not shipped any orders.
+    --72. Retrieve employees who have not shipped any orders.
     --检索尚未发货的员工。
-
+    SELECT EmployeeID, FirstName, LastName
+    FROM Employees
+    WHERE EmployeeID NOT IN (
+        SELECT DISTINCT EmployeeID
+        FROM Orders
+    );
 
 
     --73. Find customers who have orders with a discount applied.
@@ -756,11 +761,7 @@
     --列出单价高于所有产品平均单价的所有产品。
     SELECT *
     FROM Products
-    WHERE UnitPrice > (SELECT AVG(UnitPrice) FROM Products);
-
-    SELECT*
-    FROM Products p
-    WHERE UnitPrice > (SELECT AVG(UnitPrice) FROM Products);
+    WHERE UnitPrice > (SELECT AVG(UnitPrice) FROM Products);    
              
 
     --94.Retrieve the top 5 customers who have placed the highest number of orders.
@@ -788,7 +789,7 @@
     --96. Get the total number of orders shipped by each shipper.
     --获取每个发货人发货的订单总数。   
 
-    SELECT s.CompanyName, COUNT(o.OrderID) AS TotalOrders
+    SELECT s.CompanyName, COUNT(DISTINCT o.OrderID) AS TotalOrders
     FROM Shippers s
     LEFT JOIN Orders o ON s.ShipperID = o.ShipVia
     GROUP BY s.CompanyName;
